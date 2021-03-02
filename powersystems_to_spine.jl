@@ -16,8 +16,10 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #############################################################################
+using SpineOpt
 using SpineInterface
-using InfrastructureSystems
+using PowerSystems
+#using InfrastructureSystems
 using PyCall
 using URIParser
 
@@ -41,72 +43,24 @@ end
 Given the PowerSystems.jl system dict `ps_system`, create a Spine Model db at `db_url`
 """
 
-function import_data_structure()
-    object_classes = []
-    object_parameters = []
-    relationship_classes = []
-    relationship_parameters = []
+function new_object_parameters()    
+    object_parameters = []     
 
     push!(object_parameters,("node", "minimum_voltage"))
-    push!(object_parameters,("node", "voltage"))
-    push!(object_parameters,("node", "demand"))
+    push!(object_parameters,("node", "voltage"))   
 
-    object_classes=["node", "connection", "unit", "commodity"]
-
-    push!(relationship_classes, ("node_group__node", ["node", "node"]))
-    push!(relationship_classes, ("connection__to_node", ["connection", "node"]))
-    push!(relationship_classes, ("connection__from_node", ["connection", "node"]))
-    push!(relationship_classes, ("unit__to_node", ["unit", "node"]))
-    push!(relationship_classes, ("node__commodity", ["node", "commodity"]))
-
-    push!(object_parameters, ("commodity", "commodity_lodf_tolerance"))
-    push!(object_parameters, ("commodity", "commodity_physics"))
-    push!(object_parameters, ("commodity", "commodity_ptdf_flow_tolerance"))
-    push!(object_parameters, ("commodity", "commodity_ptdf_threshold"))
-    push!(object_parameters, ("commodity", "commodity_slack_penalty"))
-
-    push!(object_parameters, ("connection", "connection_resistance"))
-    push!(object_parameters, ("connection", "connection_reactance"))
-    push!(object_parameters, ("connection", "connection_monitored"))
-    push!(object_parameters, ("connection", "connection_contingency"))
-    push!(object_parameters, ("connection", "connection_length"))
-    push!(object_parameters, ("connection", "connection_availability_factor"))
-
-    push!(object_parameters, ("unit", "fix_units_on"))
-    push!(object_parameters, ("unit", "fom_cost"))
-    push!(object_parameters, ("unit", "min_down_time"))
-    push!(object_parameters, ("unit", "min_up_time"))
-    push!(object_parameters, ("unit", "number_of_units"))
-    push!(object_parameters, ("unit", "online_variable_type"))
-    push!(object_parameters, ("unit", "shut_down_cost"))
-    push!(object_parameters, ("unit", "start_up_cost"))
-    push!(object_parameters, ("unit", "unit_availability_factor"))
-
-    push!(relationship_parameters, ("unit__to_node", "unit_capacity"))
-    push!(relationship_parameters, ("unit__to_node", "unit_conv_cap_to_flow"))
-    push!(relationship_parameters, ("unit__to_node", "minimum_operating_point"))
-    push!(relationship_parameters, ("unit__from_node", "unit_capacity"))
-    push!(relationship_parameters, ("unit__from_node", "unit_conv_cap_to_flow"))
-    push!(relationship_parameters, ("unit__from_node", "minimum_operating_point"))
-    push!(relationship_parameters, ("connection__from_node", "connection_capacity"))
-    push!(relationship_parameters, ("connection__to_node", "connection_capacity"))
-    push!(relationship_parameters, ("connection__from_node", "connection_emergency_capacity"))
-    push!(relationship_parameters, ("connection__to_node", "connection_emergency_capacity"))
-
-    return  object_classes,
-            object_parameters,
-            relationship_classes,
-            relationship_parameters
+    return  object_parameters            
 end
 
 function write_powersystem(ps_system::Dict, db_url::String)
-
+    SpineInterface._import_spinedb_api()
     object_classes,
     object_parameters,
     relationship_classes,
     relationship_parameters = import_data_structure()
 
     objects = []
+    object_groups = []
     relationships = []
     object_parameter_values = []
     relationship_parameter_values = []
@@ -150,20 +104,14 @@ function write_powersystem(ps_system::Dict, db_url::String)
             push!(areas, area_name)
             push!(objects, ("node", area_name))
             push!(object_parameter_values, ("node", area_name, "minimum_voltage", 110.0))
-        end
-        obj_list=[]
-        push!(obj_list, area_name)
-        push!(obj_list, name)
-        push!(relationships,("node_group__node",obj_list))
+        end        
+        push!(object_groups,["node", area_name, name])
 
         if !(zone_name in zones)
             push!(zones, zone_name)
             push!(objects, ("node", zone_name))
-        end
-        obj_list=[]
-        push!(obj_list, zone_name)
-        push!(obj_list, name)
-        push!(relationships,("node_group__node",obj_list))
+        end        
+        push!(object_groups,["node", zone_name, name])
 
         obj_list=[]
         push!(obj_list, name)
@@ -291,50 +239,49 @@ function write_powersystem(ps_system::Dict, db_url::String)
             push!(object_parameter_values, ("node", name, "demand", load_contender))
         end
     end
-@info "writing PSSE data to $(db_url)"
+    @info "writing PSSE data to $(db_url)"
 
-db_map=db_api.DiffDatabaseMapping(db_url; upgrade=true)
+    db_map = db_api.DatabaseMapping(db_url; create=true)
+    SpineOpt.import_data(db_url, SpineOpt.template(), "Load SpineOpt template")
+    
 
-added, err_log = db_api.import_data(
-    db_map,
-    object_classes=object_classes,
-    relationship_classes=relationship_classes,
-    object_parameters=object_parameters,
-    relationship_parameters=relationship_parameters,
-    objects=objects,
-    relationships=relationships,
-    object_parameter_values=object_parameter_values,
-    relationship_parameter_values=relationship_parameter_values,
-)
-comment="powersystems to spine import"
-db_map.commit_session(comment)
+    @info "importing data to $(db_url)"
 
-@info "data imported to $(db_url)"
+    added, err_log = db_api.import_data(
+        db_map;
+        objects=objects,
+        object_groups=object_groups,
+        object_parameters=new_object_parameters(),
+        relationships=relationships,
+        object_parameter_values=object_parameter_values,
+        relationship_parameter_values=relationship_parameter_values
+    )        
+    comment="powersystems to spine import"
+    db_map.commit_session(comment)
+
+    @info "data imported to $(db_url)"
 
 end
 
 function aggregate_network(db_url::String)
-    con__mon = Tuple{Object,Object}[] # this is a set of monitored and contingent line tuples that must be considered as defined by the connection_monitored and connection_contingency parmaeters
-    monitored_lines=[]
-    ptdf_conn_n = Dict{Tuple{Object,Object},Float64}() #ptdfs returned by PowerSystems.jl
-    lodf_con_mon = Dict{Tuple{Object,Object},Float64}() #lodfs calcuated based on ptdfs returned by PowerSystems.jl
-    net_inj_nodes=[] # this is the set of nodes with demand or generation
-
-    object_classes,
-    object_parameters,
-    relationship_classes,
-    relationship_parameters = import_data_structure()
+    #con__mon = Tuple{Object,Object}[] # this is a set of monitored and contingent line tuples that must be considered as defined by the connection_monitored and connection_contingency parmaeters
+    con__mon = []
+    monitored_lines = []
+    ptdf_conn_n = Dict() #ptdfs returned by PowerSystems.jl
+    lodf_con_mon = Dict() #lodfs calcuated based on ptdfs returned by PowerSystems.jl
+    net_inj_nodes = [] # this is the set of nodes with demand or generation
 
     objects = []
     object_parameter_values = []
     relationships = []
     relationship_parameter_values = []
 
-    using_spinedb(db_url)
+    using_spinedb(db_url, SpineOpt)
 
-    @info "pruning system at $(db_url)"
+    @info "pruning system at $(db_url)"    
 
     for c in commodity()
+        @info c commodity_physics(commodity=c)
         if commodity_physics(commodity=c) in (:commodity_physics_ptdf, :commodity_physics_lodf)
 
             @info "Processing network for commodity $(c) with network_physics $(commodity_physics(commodity=c))"
@@ -368,7 +315,7 @@ function aggregate_network(db_url::String)
             for n in node__commodity(commodity=c)
                 push!(comm_nodes, n)
                 if !isempty(unit__to_node(node=n)) || demand(node=n) > 0
-                    for ng in node_group__node(node2=n)
+                    for ng in groups(n)
                         if ! (minimum_voltage(node=ng) == nothing)
                             min_v = minimum_voltage(node=ng)
                             break
@@ -395,7 +342,7 @@ function aggregate_network(db_url::String)
             traversed[n2] = false
         end
         min_v=0
-        for ng in node_group__node(node2=n)
+        for ng in groups(n)
             if ! (minimum_voltage(node=ng) == nothing)
                 min_v = minimum_voltage(node=ng)
                 break
@@ -411,13 +358,17 @@ function aggregate_network(db_url::String)
     units_distributed = 0
     demands_moved = 0
     demands_distributed = 0
-
+    sample_id = true
     for n in comm_nodes
-        for ng in node_group__node(node2=n)
+        for ng in groups(n)            
             if ! (minimum_voltage(node=ng) == nothing)
                 min_v = minimum_voltage(node=ng)
                 if voltage(node=n) < min_v
                     push!(to_prune_object_ids, n.id)
+                    if sample_id
+                        @info "object data" n.name, n.id
+                        sample_id = false
+                    end
                     nodes_pruned += 1
                     for conn in connection__to_node(node=n)
                         if !(conn.id in to_prune_object_ids)
@@ -433,7 +384,7 @@ function aggregate_network(db_url::String)
                     end
                 end
                 break
-            end
+            end            
         end
     end
 
@@ -551,18 +502,15 @@ function aggregate_network(db_url::String)
 
     @info "new database copied to $(new_db_path)"
 
-    db_map=db_api.DiffDatabaseMapping(new_db_url; upgrade=true)
+    db_map=db_api.DiffDatabaseMapping(new_db_url; upgrade=false)
 
-    db_map.remove_items(object_ids=to_prune_object_ids)
-    comment="network pruning demand and generation shifts"
+    db_map.cascade_remove_items(object=py"set($to_prune_object_ids)")
+    @info "committing removed items to the void..."
+    comment="Network pruning: low voltage nodes removed"
     db_map.commit_session(comment)
 
     added, err_log = db_api.import_data(
-        db_map,
-        object_classes=object_classes,
-        relationship_classes=relationship_classes,
-        object_parameters=object_parameters,
-        relationship_parameters=relationship_parameters,
+        db_map,        
         objects=objects,
         relationships=relationships,
         object_parameter_values=object_parameter_values,
@@ -705,6 +653,7 @@ function check_x()
     end
 end
 
+
 """
     calculate_ptdfs()
 
@@ -730,9 +679,10 @@ function calculate_ptdfs()
                     name = string(n),
                     bustype = bustype,
                     angle = 0.0,
-                    voltage = 0.0,
-                    voltagelimits = (min = 0.0, max = 0.0),
-                    basevoltage = nothing,
+                    #voltage = 0.0,
+                    magnitude = 0.0,
+                    voltage_limits = (min = 0.0, max = 0.0),
+                    base_voltage = nothing,
                     area = nothing,
                     load_zone = LoadZone(nothing),
                     ext = Dict{String, Any}()
@@ -743,8 +693,8 @@ function calculate_ptdfs()
                 i = i + 1
             end
 
-            PowerSystems.buscheck(ps_busses)
-            PowerSystems.slack_bus_check(ps_busses)
+#            InfrastructureSystems.buscheck(ps_busses)
+#            InfrastructureSystems.slack_bus_check(ps_busses)
 
             for conn in connection()
                 for n_from in connection__from_node(connection=conn)
@@ -755,14 +705,14 @@ function calculate_ptdfs()
                                 new_line = Line(;
                                     name = string(conn),
                                     available = true,
-                                    activepower_flow = 0.0,
-                                    reactivepower_flow = 0.0,
+                                    active_power_flow = 0.0,
+                                    reactive_power_flow = 0.0,
                                     arc = ps_arc,
                                     r = connection_resistance(connection=conn),
                                     x = max(connection_reactance(connection=conn), 0.00001),
                                     b = (from=0.0, to=0.0),
                                     rate = 0.0,
-                                    anglelimits = (min = 0.0, max = 0.0)
+                                    angle_limits = (min = 0.0, max = 0.0)
                                 )
                                 push!(ps_lines,new_line)
                             end  #in case there are somehow multiple commodities
@@ -794,6 +744,7 @@ function calculate_ptdfs()
     #buildlodf needs to be updated to account for cases
     #lodfs=PowerSystems.buildlodf(ps_lines,ps_busses)
 end
+
 
 #function (ptdf::PTDF)(conn::Object, n::Object)
 #     # Do something with ptdf, conn, and n, and return the value
@@ -866,8 +817,8 @@ function get_net_inj_nodes()
                         push!(net_inj_nodes, n)
                     end
                 end
-                for ng in node_group__node(node2=n)
-                    if fractional_demand(node1=ng, node2=n) > 0 || demand(node=n) > 0
+                for ng in groups(n)
+                    if fractional_demand(node=n) > 0 || demand(node=n) > 0
                         if !(n in net_inj_nodes)
                             push!(net_inj_nodes, n)
                         end
