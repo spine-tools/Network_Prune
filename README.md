@@ -13,11 +13,11 @@ To run the tool on a Spine database located at `db_url`, simply call `prune_netw
 
 To run the example in the respository, one can run the following code:
 
-    ```julia
-    db_url="sqlite:///powersystems_test.sqlite"
-    include("prune_network.jl")
-    prune_network(db_url)
-    ```
+```julia
+db_url="sqlite:///powersystems_test.sqlite"
+include("prune_network.jl")
+prune_network(db_url)
+```
 
 Requirements for the input Spine database
  - The network is defined by nodes and connections. It is assumed each connection has a single `connection__from_node` and a single `connection__to_node relationship`
@@ -33,9 +33,9 @@ To conver the PSSE raw file at psse_path to a Spine Database at db_url one simpl
 
 To run the example in the respository, one can run the following code:
 
-    ```julia
-    include("psse_to_spine.jl")
-    psse_path = "WP2019.raw"
-    db_url="sqlite:///powersystems_test.sqlite"
-    psse_to_spine(psse_path, db_url)
-    ```
+```julia
+include("psse_to_spine.jl")
+psse_path = "WP2019.raw"
+db_url="sqlite:///powersystems_test.sqlite"
+psse_to_spine(psse_path, db_url)
+```
