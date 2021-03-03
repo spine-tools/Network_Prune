@@ -23,13 +23,13 @@ Requirements for the input Spine database
  - The network is defined by nodes and connections. It is assumed each connection has a single `connection__from_node` and a single `connection__to_node relationship`
  - To be included in the network, each node must be related to a single `commodity` with `commodity_physics(commodity=c) in(:commodity_physics_ptdf, :commodity_physics_lodf)`
  - To define the minimum voltage level, a node group can be created and the parameter `minimum_voltage` specified which will set the minimum voltage level for all member nodes. 
-  - A sample database can be found in the repository
+ - A sample database can be found in the repository
 
 ## psse_to_spine.jl 
 This tool takes as input a PSSE raw file and uses Powersystems.jl to parse it. It then creates an equivalent minimal SpineOpt system which can be used directly with network_prune.jl as described above. The tool automatically creates node groups based on the zones and areas in the PSSE raw file. A minimum voltage level of 110 is currently pre-specified. This can easily be changed by updated the minimum_voltage parameter in the resulting Spine database that is created.
 
 ### Usage
-To conver the PSSE raw file at psse_path to a Spine Database at db_url one simply calls `psse_to_spine(psse_path, db_url)`
+To convert the PSSE raw file at psse_path to a Spine Database at db_url one simply calls `psse_to_spine(psse_path, db_url)`
 
 To run the example in the respository, one can run the following code:
 
