@@ -18,18 +18,27 @@
 #############################################################################
 using SpineInterface
 using SpineOpt
-using PowerSystems
+using PowerModels
 
 """
     psse_to_spine(psse_path, db_url)
 
-Parse the psse raw file (`psse_path`) using PowerSystems.jl and convert it
+Parse the psse raw file (`psse_path`) using PowerModels.jl and convert it
 to a Spine model at `db_url` using `nodes`, `units` and `conenctions`
 """
 
+struct FilteredIO <: IO
+    inner::IO
+    flt
+end
+
+Base.readlines(io::FilteredIO) = filter!(io.flt, readlines(io.inner))
 
 function psse_to_spine(psse_path, db_url::String)
-    pm_data = PowerSystems.parse_psse(psse_path)
+    pm_data = open(psse_path) do io
+        filtered_io = FilteredIO(io, line -> !startswith(line, "@!") && !isempty(strip(line)))
+        PowerModels.parse_psse(filtered_io)
+    end
     write_powersystem(pm_data, db_url)
 end
 
@@ -47,7 +56,7 @@ end
 """
     write_powersystem!(ps_system, db_url)
 
-Given the PowerSystems.jl system dict `ps_system`, create a Spine Model db at `db_url`
+Given the PowerModels.jl system dict `ps_system`, create a Spine Model db at `db_url`
 """
 
 function write_powersystem(ps_system::Dict, db_url::String)
