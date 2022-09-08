@@ -124,7 +124,7 @@ function write_powersystem(ps_system::Dict, db_url::String)
 
     for b in ps_system["branch"]
         data=b[2]
-        if data["br_status"] in (0, 1)
+        if data["br_status"] in (0, 1) && haskey(data, "rate_a")
             from_bus_name = node_name[data["f_bus"]]
             to_bus_name =  node_name[data["t_bus"]]
             ckt = rstrip(string(data["source_id"][4]))
