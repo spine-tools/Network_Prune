@@ -110,7 +110,7 @@ function prune_network(db_url::String)
         traverse(n, n, traversed, node__new_nodes, min_v, ptdf_conn_n, 1)
     end
 
-    to_prune_object_ids = []
+    to_prune_object_keys = []
     nodes_pruned = 0
     connections_pruned=0
     units_moved = 0
@@ -122,17 +122,17 @@ function prune_network(db_url::String)
             if ! (minimum_voltage(node=ng) == nothing)
                 min_v = minimum_voltage(node=ng)
                 if voltage(node=n) < min_v
-                    push!(to_prune_object_ids, n.id)                    
+                    push!(to_prune_object_keys, (n.class_name, n.name))                    
                     nodes_pruned += 1
                     for conn in connection__to_node(node=n)
-                        if !(conn.id in to_prune_object_ids)
-                            push!(to_prune_object_ids, conn.id)
+                        if !((conn.class_name, conn.name) in to_prune_object_keys)
+                            push!(to_prune_object_keys, (conn.class_name, conn.name))
                             connections_pruned += 1
                         end
                     end
                     for conn in connection__from_node(node=n)
-                        if !(conn.id in to_prune_object_ids)
-                            push!(to_prune_object_ids, conn.id)
+                        if !((conn.class_name, conn.name) in to_prune_object_keys)
+                            push!(to_prune_object_keys, (conn.class_name, conn.name))
                             connections_pruned += 1
                         end
                     end
@@ -175,7 +175,7 @@ function prune_network(db_url::String)
             gen_to_shift = 0
             for u in unit__to_node(node=n)
                 gen_to_shift = gen_to_shift + unit_capacity(unit=u, node=n)
-                push!(to_prune_object_ids, u.id)
+                push!(to_prune_object_keys, (u.class_name, u.name))                    
                 units_distributed += 1
             end
             for (n2, ptdf) in data
@@ -256,8 +256,13 @@ function prune_network(db_url::String)
 
     @info "new database copied to $(new_db_path)"
 
-    db_map=db_api.DiffDatabaseMapping(new_db_url; upgrade=false)
+    db_map=db_api.DatabaseMapping(new_db_url; upgrade=false)
 
+    to_prune_object_ids = [
+        x["id"]
+        for x in run_request(new_db_url, "query", ("ext_object_sq",))["ext_object_sq"]
+        if (Symbol(x["class_name"]), Symbol(x["name"])) in to_prune_object_keys
+    ]
     db_map.cascade_remove_items(object=py"set($to_prune_object_ids)")
     @info "committing removed items to the void..."
     comment="Network pruning: low voltage nodes removed"
